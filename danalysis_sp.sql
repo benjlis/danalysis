@@ -1,6 +1,7 @@
 create or replace function danalysis(
-    table_schema_arg  information_schema.sql_identifier,
-    table_name_arg    information_schema.sql_identifier)
+    table_name_arg    information_schema.sql_identifier,
+    table_schema_arg  information_schema.sql_identifier = current_schema()
+    )
 returns record as $$
 declare
     ret record;
