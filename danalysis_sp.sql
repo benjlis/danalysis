@@ -22,19 +22,23 @@ begin
              table_name = table_name_arg;
    -- WHy not use upsert instead of delete/insert? Delete/insert enables a
    -- call to danalysis to clear stats for dropped tables.
-   insert into danalysis (table_schema, table_name, danalysis_time, row_count)
-   select table_schema, table_name, current_timestamp, 0
+   insert into danalysis (table_schema, table_name, danalysis_time)
+   select table_schema, table_name, current_timestamp
       from information_schema.tables
       where table_schema = table_schema_arg and
             table_name = table_name_arg;
    get diagnostics rcnt = ROw_COUNT;
    if rcnt = 1 then
       update danalysis
-         set row_count =
-            cast(danalysis_dysel('count(*) from '|| table_name_arg) as integer)
+         set row_count = cast(danalysis_dysel('count(*) from '||
+                            table_name_arg) as integer),
+             column_count = (select count(*)
+                               from information_schema.columns
+                               where table_schema = table_schema_arg and
+                                     table_name = table_name_arg)
          where table_schema = table_schema_arg and
                table_name = table_name_arg;
-      select table_schema, table_name, danalysis_time, row_count
+      select table_schema, table_name, danalysis_time, row_count, column_count
          into ret
          from danalysis
          where table_schema = table_schema_arg and
