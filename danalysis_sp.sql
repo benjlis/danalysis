@@ -14,6 +14,9 @@ create or replace function danalysis(
     )
 returns record as $$
 declare
+    from_clause text;
+    array_select text;
+    from_group text;
     ret record;
     rcnt int;
 begin
@@ -46,15 +49,44 @@ begin
          from information_schema.columns
          where table_schema = table_schema_arg and
                table_name = table_name_arg;
+      -- column counts
+      from_clause = ' from ' || table_schema_arg || '.' ||table_name_arg;
       update danalysis_columns
-         set count_not_null = cast(danalysis_dysel('count(' || column_name ||
-                                 ') from '|| table_name) as integer),
-             count_distinct = cast(danalysis_dysel('count(distinct ' ||
-                                 column_name || ') from '|| table_name)
-                                 as integer)
+         set not_null_count = cast(danalysis_dysel('count(' || column_name ||
+                                 ') ' || from_clause) as integer),
+             distinct_count = cast(danalysis_dysel('count(distinct ' ||
+                                 column_name || ') ' || from_clause) as integer)
         where table_schema = table_schema_arg and
               table_name = table_name_arg;
-      --
+      -- column_population
+      update danalysis_columns c
+         set column_population = (
+             select case when c.not_null_count = 0 then 'ALL NULLS'
+                         when c.distinct_count = row_count then 'CANDIDATE KEY'
+                         when c.not_null_count = row_count then 'NOT NULL'
+                         when c.not_null_count::float/row_count::float < .1
+                            then 'SPARSE'
+                         when c.not_null_count::float/row_count::float > .98
+                            then 'APPROX NOT NULL'
+                         else 'NULLABLE'
+                    end
+                from danalysis
+                where table_schema = c.table_schema and
+                      table_name = c.table_name)
+         where table_schema = table_schema_arg and
+               table_name = table_name_arg;
+      -- get list of lov_values
+      array_select = 'array_to_string(array(' ||
+                     'select (code || '':'' || cnt) from (select ';
+      from_group = from_clause ||
+                   ' group by code order by cnt desc) s), '', '')';
+      update danalysis_columns
+         set lov = danalysis_dysel(array_select || column_name || ' code, ' ||
+                      'count(' || column_name || ') cnt ' || from_group)
+         where distinct_count::float/nullif(not_null_count, 0)::float < .02 and
+               table_schema = table_schema_arg and
+               table_name = table_name_arg;
+      -- return values
       select table_schema, table_name, danalysis_time, row_count, column_count
          into ret
          from danalysis
