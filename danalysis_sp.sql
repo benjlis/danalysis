@@ -35,6 +35,7 @@ begin
    if rcnt = 1 then   -- table exists
       update danalysis
          set row_count = cast(danalysis_dysel('count(*) from '||
+                            table_schema_arg || '.' ||
                             table_name_arg) as integer),
              column_count = (select count(*)
                                from information_schema.columns
@@ -44,8 +45,9 @@ begin
                table_name = table_name_arg;
       -- column level processing
       insert into danalysis_columns (table_schema, table_name,
-         column_name, ordinal_position)
-      select table_schema, table_name, column_name, ordinal_position
+             column_name, data_type, ordinal_position)
+      select table_schema, table_name, column_name, data_type,
+             ordinal_position
          from information_schema.columns
          where table_schema = table_schema_arg and
                table_name = table_name_arg;
@@ -55,7 +57,11 @@ begin
          set not_null_count = cast(danalysis_dysel('count(' || column_name ||
                                  ') ' || from_clause) as integer),
              distinct_count = cast(danalysis_dysel('count(distinct ' ||
-                                 column_name || ') ' || from_clause) as integer)
+                                 column_name || ') ' || from_clause) as integer),
+             min_value = cast(danalysis_dysel('min(' || column_name ||
+                                     ') ' || from_clause) as text),
+             max_value = cast(danalysis_dysel('max(' || column_name ||
+                                     ') ' || from_clause) as text)
         where table_schema = table_schema_arg and
               table_name = table_name_arg;
       -- column_population
@@ -83,7 +89,12 @@ begin
       update danalysis_columns
          set lov = danalysis_dysel(array_select || column_name || ' code, ' ||
                       'count(' || column_name || ') cnt ' || from_group)
-         where distinct_count::float/nullif(not_null_count, 0)::float < .02 and
+         where distinct_count <= 100 and
+               table_schema = table_schema_arg and
+               table_name = table_name_arg;
+      update danalysis_columns
+         set lov = 'TOO MANY DISTINCT VALUES TO LIST!'
+         where distinct_count > 100 and
                table_schema = table_schema_arg and
                table_name = table_name_arg;
       -- return values
